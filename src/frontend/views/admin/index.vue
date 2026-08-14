@@ -303,7 +303,7 @@
       <div v-if="d1UsageResult" id="d1UsageModal" class="modal-overlay active">
         <div class="modal-dialog">
           <div class="modal-header">
-            <div class="modal-title">$ D1 & Workers quota --utc</div>
+            <div class="modal-title">$ D1, Workers & Durable Objects quota --utc</div>
             <button class="modal-close" @click="d1UsageResult = null">✕</button>
           </div>
 
@@ -341,6 +341,24 @@
                     <div class="quota-progress-fill" :style="{ width: getUsagePercent(d1UsageResult.usage.today.workersRequests, 100000) + '%' }"></div>
                   </div>
                 </div>
+                <div class="quota-progress-item">
+                  <div class="flex-justify-between text-sm mb-1">
+                    <span>{{ trans.durableObjectsRequests }}：{{ formatNumber(d1UsageResult.usage.today.durableObjectsRequests) }}{{ formatDurableObjectsRawRequests(d1UsageResult.usage.today) }} / {{ formatNumber(100000) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.today.durableObjectsRequests, 100000) }}%</span>
+                  </div>
+                  <div class="quota-progress-bar">
+                    <div class="quota-progress-fill" :style="{ width: getUsagePercent(d1UsageResult.usage.today.durableObjectsRequests, 100000) + '%' }"></div>
+                  </div>
+                </div>
+                <div class="quota-progress-item">
+                  <div class="flex-justify-between text-sm mb-1">
+                    <span>{{ trans.durableObjectsDuration }}：{{ formatNumber(d1UsageResult.usage.today.durableObjectsDuration, 2) }} / {{ formatNumber(13000) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.today.durableObjectsDuration, 13000) }}%</span>
+                  </div>
+                  <div class="quota-progress-bar">
+                    <div class="quota-progress-fill" :style="{ width: getUsagePercent(d1UsageResult.usage.today.durableObjectsDuration, 13000) + '%' }"></div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -372,6 +390,24 @@
                   </div>
                   <div class="quota-progress-bar">
                     <div class="quota-progress-fill" :style="{ width: getUsagePercent(d1UsageResult.usage.yesterday.workersRequests, 100000) + '%' }"></div>
+                  </div>
+                </div>
+                <div class="quota-progress-item">
+                  <div class="flex-justify-between text-sm mb-1">
+                    <span>{{ trans.durableObjectsRequests }}：{{ formatNumber(d1UsageResult.usage.yesterday.durableObjectsRequests) }}{{ formatDurableObjectsRawRequests(d1UsageResult.usage.yesterday) }} / {{ formatNumber(100000) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.durableObjectsRequests, 100000) }}%</span>
+                  </div>
+                  <div class="quota-progress-bar">
+                    <div class="quota-progress-fill" :style="{ width: getUsagePercent(d1UsageResult.usage.yesterday.durableObjectsRequests, 100000) + '%' }"></div>
+                  </div>
+                </div>
+                <div class="quota-progress-item">
+                  <div class="flex-justify-between text-sm mb-1">
+                    <span>{{ trans.durableObjectsDuration }}：{{ formatNumber(d1UsageResult.usage.yesterday.durableObjectsDuration, 2) }} / {{ formatNumber(13000) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.durableObjectsDuration, 13000) }}%</span>
+                  </div>
+                  <div class="quota-progress-bar">
+                    <div class="quota-progress-fill" :style="{ width: getUsagePercent(d1UsageResult.usage.yesterday.durableObjectsDuration, 13000) + '%' }"></div>
                   </div>
                 </div>
               </div>
@@ -662,7 +698,15 @@ const parseThemeOptions = (value) => {
   }
 }
 
-const formatNumber = (value) => Number(value || 0).toLocaleString()
+const formatNumber = (value, maximumFractionDigits = 0) => (
+  Number(value || 0).toLocaleString(undefined, { maximumFractionDigits })
+)
+const formatDurableObjectsRawRequests = (usage = {}) => {
+  const raw = Number(usage.durableObjectsRawRequests || 0)
+  const estimated = Number(usage.durableObjectsRequests || 0)
+  if (!raw || raw === estimated) return ''
+  return ` (${trans.value.rawRequests || 'raw'}: ${formatNumber(raw)})`
+}
 const getUsagePercent = (used, limit) => {
   if (!limit) return 0
   return Math.min(100, Number(((Number(used || 0) / Number(limit)) * 100).toFixed(2)))

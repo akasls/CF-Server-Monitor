@@ -3,7 +3,7 @@ import { checkOfflineNodes, checkExpiringServers, checkResourceAlerts } from './
 import { updateDatabase } from './database/updateDatabase.js';
 import { handleAdminAPI } from './handlers/admin.js';
 import { serveFrontend } from './handlers/frontend.js';
-import { handleUpdate, handleWebSocketUpgrade } from './handlers/update.js';
+import { handleUpdate, handleWebSocketUpgrade, handleUpdateWebSocketUpgrade } from './handlers/update.js';
 import { handleServerAPI, handleServersAPI } from './handlers/dashboard.js';
 import { handleTheme } from './handlers/theme.js';
 import { loadSettings, loadSiteSettings, loadAppearanceOptions, normalizeLongHistoryPoints, setDebug, debug, getCurrentVersion } from './utils/settings.js';
@@ -310,6 +310,7 @@ export default {
 
     const routes = [
       { method: 'POST', path: '/update', handler: () => handleUpdate(request, env, ctx) },
+      { method: 'GET', path: '/update', handler: () => handleUpdateWebSocketUpgrade(request, env) },
       { method: 'GET', path: '/__do/health', handler: async () => {
         if (!env.METRICS_BROADCASTER) {
           return createSuccessResponse({ ok: false, reason: 'DO not bound' });
@@ -399,7 +400,7 @@ export default {
       }},
       { method: 'POST', path: '/admin/api', handler: async () => {
         await ensureSiteSettings();
-        return handleAdminAPI(request, env, sys, ensureFullSettings);
+        return handleAdminAPI(request, env, sys, ensureFullSettings, ctx);
       }},
       { method: 'POST', path: '/updateDatabase', handler: async () => {
         await ensureSiteSettings();

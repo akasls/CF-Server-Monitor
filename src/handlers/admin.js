@@ -9,11 +9,13 @@ import { addServerColumns } from '../database/updateDatabase.js';
 import { clearResourceAlertState, sendNotification } from '../services/notification.js';
 import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../database/indexOptimization.js';
 import { isValidTrafficCorrection, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
+import { scheduleAgentConfigChanged } from '../utils/agentConfigNotify.js';
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../utils/serverBilling.js';
 
 const PING_NODE_FIELDS = ['custom_ct', 'custom_cu', 'custom_cm', 'custom_bd'];
 const THEME_PREVIEW_AUTH_COOKIE = 'cfsm_theme_preview_auth';
 const THEME_PREVIEW_AUTH_TTL = 600;
+const DURABLE_OBJECTS_WEBSOCKET_MESSAGE_BILLING_RATIO = 20;
 
 function normalizeBooleanFlag(value) {
   return value === true || value === 1 || value === '1' || value === 'true' ? '1' : '0';
@@ -265,6 +267,12 @@ async function cloudflareGraphql(query, variables, token) {
   return data.data;
 }
 
+export function estimateDurableObjectsBillableRequests(rawRequests) {
+  const requests = Number(rawRequests) || 0;
+  if (requests <= 0) return 0;
+  return Math.ceil(requests / DURABLE_OBJECTS_WEBSOCKET_MESSAGE_BILLING_RATIO);
+}
+
 async function fetchCloudflareUsage(token, accountId, range) {
   const query = `query CloudflareUsage($accountTag: string!, $start: Date, $end: Date, $startTime: Time!, $endTime: Time!) {
     viewer {
@@ -281,6 +289,18 @@ async function fetchCloudflareUsage(token, accountId, range) {
           filter: { datetime_geq: $startTime, datetime_leq: $endTime }
         ) {
           sum { requests }
+        }
+        durableObjectsInvocationsAdaptiveGroups(
+          limit: 10000
+          filter: { date_geq: $start, date_leq: $end }
+        ) {
+          sum { requests }
+        }
+        durableObjectsPeriodicGroups(
+          limit: 10000
+          filter: { date_geq: $start, date_leq: $end }
+        ) {
+          sum { duration }
         }
       }
     }
@@ -302,7 +322,24 @@ async function fetchCloudflareUsage(token, accountId, range) {
   const workersRequests = (account.workersInvocationsAdaptive || []).reduce((total, group) => {
     return total + Number(group.sum?.requests || 0);
   }, 0);
-  return { rowsRead: usage.rowsRead, rowsWritten: usage.rowsWritten, workersRequests, databaseCount: groups.length };
+  const durableObjectsRawRequests = (account.durableObjectsInvocationsAdaptiveGroups || []).reduce((total, group) => {
+    return total + Number(group.sum?.requests || 0);
+  }, 0);
+  const durableObjectsRequests = estimateDurableObjectsBillableRequests(durableObjectsRawRequests);
+  const durableObjectsDuration = (account.durableObjectsPeriodicGroups || []).reduce((total, group) => {
+    return total + Number(group.sum?.duration || 0);
+  }, 0);
+  return {
+    rowsRead: usage.rowsRead,
+    rowsWritten: usage.rowsWritten,
+    workersRequests,
+    durableObjectsRequests,
+    durableObjectsRawRequests,
+    durableObjectsRequestsEstimated: true,
+    durableObjectsRequestBillingRatio: DURABLE_OBJECTS_WEBSOCKET_MESSAGE_BILLING_RATIO,
+    durableObjectsDuration,
+    databaseCount: groups.length
+  };
 }
 
 async function getD1DailyUsage(token, accountId) {
@@ -320,20 +357,30 @@ async function getD1DailyUsage(token, accountId) {
   const yesterday = {
     rowsRead: yesterdayUsage.rowsRead,
     rowsWritten: yesterdayUsage.rowsWritten,
-    workersRequests: yesterdayUsage.workersRequests
+    workersRequests: yesterdayUsage.workersRequests,
+    durableObjectsRequests: yesterdayUsage.durableObjectsRequests,
+    durableObjectsRawRequests: yesterdayUsage.durableObjectsRawRequests,
+    durableObjectsRequestsEstimated: yesterdayUsage.durableObjectsRequestsEstimated,
+    durableObjectsRequestBillingRatio: yesterdayUsage.durableObjectsRequestBillingRatio,
+    durableObjectsDuration: yesterdayUsage.durableObjectsDuration
   };
 
   return {
     today: {
       rowsRead: todayUsage.rowsRead,
       rowsWritten: todayUsage.rowsWritten,
-      workersRequests: todayUsage.workersRequests
+      workersRequests: todayUsage.workersRequests,
+      durableObjectsRequests: todayUsage.durableObjectsRequests,
+      durableObjectsRawRequests: todayUsage.durableObjectsRawRequests,
+      durableObjectsRequestsEstimated: todayUsage.durableObjectsRequestsEstimated,
+      durableObjectsRequestBillingRatio: todayUsage.durableObjectsRequestBillingRatio,
+      durableObjectsDuration: todayUsage.durableObjectsDuration
     },
     yesterday
   };
 }
 
-export async function handleAdminAPI(request, env, sys, loadFullSettings = null) {
+export async function handleAdminAPI(request, env, sys, loadFullSettings = null, ctx = null) {
   try {
     const data = await request.json();
 
@@ -812,6 +859,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       }
       
       clearServersListCache();
+      scheduleAgentConfigChanged(env, ctx, id);
       
       return createSuccessResponse({ 
         success: true, 

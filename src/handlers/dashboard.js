@@ -13,6 +13,7 @@ import {
   cacheRealtimeState,
   getCachedRealtimeState
 } from '../utils/realtimeStateCache.js';
+import { markFrontendRealtimeActive } from '../utils/realtimeBroadcastGate.js';
 
 const LATEST_REPORT_ID_CHUNK_SIZE = 500;
 const LATENCY_NODE_FIELDS = ['ct', 'cu', 'cm', 'bd'];
@@ -272,6 +273,7 @@ export async function handleServerAPI(request, env, sys) {
   if (sys.is_public !== 'true' && !isLoggedIn) {
     return simpleAuthResponse();
   }
+  markFrontendRealtimeActive();
   
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
@@ -300,6 +302,7 @@ export async function handleServersAPI(request, env, sys) {
   if (sys.is_public !== 'true' && !isLoggedIn) {
     return simpleAuthResponse();
   }
+  markFrontendRealtimeActive();
   
   const results = (await getAllServers(env.DB, isLoggedIn)).map(withoutPrivateServerFields);
   
